@@ -1,0 +1,8 @@
+import {env} from 'cloudflare:workers';
+import {getDb} from '../../../db';
+import {settings,applications} from '../../../db/schema';
+import {desc,gt} from 'drizzle-orm';
+function authorized(r:Request){return env.ADMIN_KEY && r.headers.get('Authorization')==='Bearer '+env.ADMIN_KEY}
+export async function GET(r:Request){if(!authorized(r))return Response.json({error:'접근 코드를 확인해 주세요'},{status:401});const rows=await getDb().select().from(applications).where(gt(applications.createdAt,Date.now()-90*86400000)).orderBy(desc(applications.id));return Response.json(rows,{headers:{'Cache-Control':'no-store'}})}
+export async function POST(r:Request){if(!authorized(r))return Response.json({error:'접근 코드 확인 필요'},{status:401});if(r.headers.get('origin')!==new URL(r.url).origin)return new Response(null,{status:403});try{const d:any=await r.json();for(const k of ['title','date','place','capacity','price','materials'])if(typeof d.monthly?.[k]!=='string'||d.monthly[k].length>300)throw Error();for(const k of ['portrait','youtubeUrl'])if(typeof d[k]!=='string'||d[k].length>1000)throw Error();if(!Array.isArray(d.gallery)||d.gallery.length>20||d.gallery.some((x:unknown)=>typeof x!=='string'||x.length>1000))throw Error();if(!Array.isArray(d.reviews)||d.reviews.length>30||d.reviews.some((x:any)=>typeof x.name!=='string'||typeof x.text!=='string'||x.text.length>2000||x.name.length>100))throw Error();await getDb().insert(settings).values({id:1,content:JSON.stringify(d)}).onConflictDoUpdate({target:settings.id,set:{content:JSON.stringify(d)}});return Response.json({ok:true})}catch{return Response.json({error:'내용을 확인해 주세요'},{status:400})}}
+
